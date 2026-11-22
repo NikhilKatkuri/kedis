@@ -1,4 +1,3 @@
-
 CC ?= gcc
 CFLAGS := -std=c17 -Wall -Wextra -Iinclude -pthread
 SAN_FLAGS := -g -fsanitize=address,undefined
@@ -39,7 +38,7 @@ $(TEST_DICT_BIN): $(TEST_DIR)/test_dict.c $(DICT_SRCS) | $(BUILD_DIR)
 $(TEST_SNAP_BIN): $(TEST_DIR)/test_snapshot.c $(SNAP_SRCS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $^ -o $@
 
-$(TEST_HANDLER_BIN): $(TEST_DIR)/test_handlers.c $(HANDLER_SRCS) $(CMD_SRCS) $(DICT_SRCS) | $(BUILD_DIR)
+$(TEST_HANDLER_BIN): $(TEST_DIR)/test_handlers.c $(HANDLER_SRCS) $(CMD_SRCS) $(SNAP_SRCS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $^ -o $@
 
 $(SERVER_BIN): $(SERVER_SRCS) | $(BUILD_DIR)

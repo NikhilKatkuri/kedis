@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build
+        run: make
+
+      - name: Unit tests
+        run: make test
+
+      - name: Smoke test (two clients at once)
+        run: |
+          export HOME="$RUNNER_TEMP/home"; mkdir -p "$HOME"
+          ./build/kedis-server > server.log 2>&1 &
+          SP=$!
+          for i in $(seq 1 20); do
+            (exec 3<>/dev/tcp/127.0.0.1/7379) 2>/dev/null && break
+            sleep 0.25
+          done
+          exec 3<>/dev/tcp/127.0.0.1/7379
+          exec 4<>/dev/tcp/127.0.0.1/7379
+          printf 'SET ci 42\n' >&3; read -t 2 -r a <&3
+          printf 'GET ci\n'    >&4; read -t 2 -r b <&4
+          a=${a%$'\r'}; b=${b%$'\r'}
+          [ "$a" = "OK" ] && [ "$b" = "42" ] || { cat server.log; exit 1; }
+          exec 3>&- 4>&-
+          kill -INT $SP
+          wait $SP
+
+      - name: Sanitizer tests (ASan/UBSan)
+        run: make san

@@ -21,7 +21,7 @@
     {
       "name": "DEL",
       "min_args": 1,
-      "max_args": 1,
+      "max_args": -1,
       "allowed_opts": []
     },
     {

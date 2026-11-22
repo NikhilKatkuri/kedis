@@ -1,0 +1,8 @@
+{
+  "name": "kedis-shell",
+  "version": "0.1.0",
+  "private": true,
+  "bin": {
+    "kedis-cli": "./shell.js"
+  }
+}

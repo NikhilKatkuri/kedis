@@ -512,14 +512,19 @@ bool dict_remove_key_expiration(Dictionary *d, const char *key, size_t key_len)
     }
     pthread_mutex_lock(&d->mutex);
     Entry **slot = dict_find_slot(d, key, key_len);
+    bool removed = false;
     if (slot != NULL)
     {
         Entry *entry = *slot;
-        entry->expiration_time = -1;
+        if (entry->expiration_time != -1)
+        {
+            entry->expiration_time = -1;
+            removed = true;
+        }
     }
 
     pthread_mutex_unlock(&d->mutex);
-    return slot != NULL;
+    return removed;
 }
 
 bool dict_flush(Dictionary *d)

@@ -15,7 +15,8 @@ bool handlers_init(Dictionary *dict)
     return cmd_handler_register("PING", handle_ping) &&
            cmd_handler_register("GET", handle_get) &&
            cmd_handler_register("SET", handle_set) &&
-           cmd_handler_register("DEL", handle_del);
+           cmd_handler_register("DEL", handle_del) && cmd_handler_register("COUNT", handle_count) &&
+           cmd_handler_register("STATS", handle_stats);
 }
 
 bool handle_ping(const ParsedLine *line, char *out, size_t size)
@@ -77,8 +78,7 @@ bool handle_set(const ParsedLine *line, char *out, size_t size)
         g_dict,
         key, strlen(key),
         value, strlen(value),
-        -1
-    );
+        -1);
 
     snprintf(out, size, "%s",
              ok ? "+OK\r\n" : "-ERR SET failed\r\n");
@@ -105,5 +105,25 @@ bool handle_del(const ParsedLine *line, char *out, size_t size)
     }
 
     snprintf(out, size, ":%d\r\n", deleted);
+    return true;
+}
+
+bool handle_count(const ParsedLine *line, char *out, size_t size)
+{
+    (void)line;
+
+    size_t count = dict_count(g_dict);
+
+    snprintf(out, size, ":%zu\r\n", count);
+    return true;
+}
+
+bool handle_stats(const ParsedLine *line, char *out, size_t size)
+{
+    (void)line;
+
+    const char *stats = dict_stats(g_dict);
+
+    snprintf(out, size, "+%s\r\n", stats);
     return true;
 }

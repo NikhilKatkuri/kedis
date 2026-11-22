@@ -14,6 +14,58 @@
 #define SNAP_MAGIC_LEN 8
 #define SNAP_MAX_LEN (512u * 1024u * 1024u)
 
+#include <stdlib.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+const char *default_snapshot_file(void)
+{
+    static char path[1024];
+
+#ifdef _WIN32
+    const char *base = getenv("LOCALAPPDATA");
+
+    if (!base || !base[0])
+        return "kedis.rdb";
+
+    snprintf(path, sizeof(path), "%s\\Kedis\\dump.rdb", base);
+
+#elif __APPLE__
+    const char *home = getenv("HOME");
+
+    if (!home || !home[0])
+        return "kedis.rdb";
+
+    snprintf(path, sizeof(path),
+             "%s/Library/Application Support/Kedis/dump.rdb", home);
+
+#elif __linux__
+    const char *base = getenv("XDG_DATA_HOME");
+
+    if (base && base[0])
+    {
+        snprintf(path, sizeof(path), "%s/kedis/dump.rdb", base);
+    }
+    else
+    {
+        const char *home = getenv("HOME");
+
+        if (!home || !home[0])
+            return "kedis.rdb";
+
+        snprintf(path, sizeof(path),
+                 "%s/.local/share/kedis/dump.rdb", home);
+    }
+
+#else
+    return "kedis.rdb";
+#endif
+
+    return path;
+}
+
 static int64_t now_ms(void)
 {
     struct timespec ts;

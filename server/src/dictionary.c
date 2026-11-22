@@ -243,3 +243,72 @@ bool dict_delete(Dictionary *d, const char *key, size_t key_len)
     }
     return false;
 }
+
+size_t dict_count(Dictionary *d)
+{
+    if (d == NULL)
+        return 0;
+    return d->count;
+}
+
+const char *dict_stats(Dictionary *d)
+{
+    static char json[512];
+
+    if (d == NULL)
+    {
+        snprintf(json, sizeof(json), "{\"error\":\"invalid dictionary\"}");
+        return json;
+    }
+
+    size_t occupied = 0;
+    size_t used_bytes = 0;
+
+    size_t bucket_bytes = d->capacity * sizeof(Entry *);
+
+    for (size_t i = 0; i < d->capacity; i++)
+    {
+        Entry *entry = d->buckets[i];
+
+        if (entry != NULL)
+            occupied++;
+
+        while (entry != NULL)
+        {
+            used_bytes += sizeof(Entry);
+            used_bytes += entry->key_len + 1;
+            used_bytes += entry->value_len + 1;
+
+            entry = entry->next;
+        }
+    }
+
+    size_t allocated_bytes =
+        sizeof(Dictionary) + bucket_bytes + used_bytes;
+
+    double load_factor = d->capacity
+                             ? (double)d->count / d->capacity
+                             : 0.0;
+
+    snprintf(
+        json,
+        sizeof(json),
+        "{"
+        "\"capacity\":%zu,"
+        "\"occupied\":%zu,"
+        "\"count\":%zu,"
+        "\"load_factor\":%.4f,"
+        "\"allocated_bytes\":%zu,"
+        "\"used_bytes\":%zu,"
+        "\"bucket_bytes\":%zu"
+        "}",
+        d->capacity,
+        occupied,
+        d->count,
+        load_factor,
+        allocated_bytes,
+        used_bytes,
+        bucket_bytes);
+
+    return json;
+}

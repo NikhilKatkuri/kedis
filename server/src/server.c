@@ -12,6 +12,10 @@
 #include "../include/commands.h"
 #include "../include/handlers.h"
 #include "../include/dictionary.h"
+#include "../include/snapshot.h"
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <errno.h>
 
 #define MAX 1024
 #define PORT 7379
@@ -76,6 +80,7 @@ static void buffer_to_command(char *buffer, int connfd)
         exit(EXIT_FAILURE);
     }
 }
+
 static void handle_client(int connfd)
 {
     char buff[MAX];
@@ -111,6 +116,29 @@ int main(void)
     if (dict == NULL)
     {
         fprintf(stderr, "Failed to create dictionary\n");
+        return 1;
+    }
+
+    const char *snapshot_path = default_snapshot_file();
+    char directory[1024];
+    snprintf(directory, sizeof(directory),
+             "%s", snapshot_path);
+
+    char *last_slash = strrchr(directory, '/');
+    if (last_slash)
+    {
+        *last_slash = '\0';
+
+        if (mkdir(directory, 0755) != 0 && errno != EEXIST)
+        {
+            perror("mkdir");
+            return 1;
+        }
+    }
+    if (!snapshot_load(dict, default_snapshot_file()))
+    {
+        fprintf(stderr, "Snapshot loading failed\n");
+        dict_free(dict);
         return 1;
     }
 
@@ -177,6 +205,12 @@ int main(void)
 
     close(connfd);
     close(sockfd);
+    if (!snapshot_save(dict, default_snapshot_file()))
+    {
+        fprintf(stderr, "Snapshot saving failed\n");
+        dict_free(dict);
+        return 1;
+    }
     dict_free(dict);
     return 0;
 }

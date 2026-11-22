@@ -40,4 +40,10 @@ Entry *dict_get(Dictionary *d, const char *key, size_t key_len);
 /* Deletes a key. Returns true if it existed. */
 bool dict_delete(Dictionary *d, const char *key, size_t key_len);
 
+/** return count of dictionary items*/
+size_t dict_count(Dictionary *d);
+
+/* size of dictionary */
+const char *dict_stats(Dictionary *d);
+
 #endif /* DICTIONARY_H */

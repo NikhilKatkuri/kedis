@@ -3,7 +3,8 @@
 
 #include <stdbool.h>
 #include "dictionary.h"
-#define default_file_path "./db/dictionary.db"
+
+const char *default_snapshot_file(void);
 
 bool snapshot_save(const Dictionary *d, const char *path);
 

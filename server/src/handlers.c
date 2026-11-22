@@ -3,6 +3,7 @@
 #include <inttypes.h>
 
 #include "../include/handlers.h"
+#include "../include/snapshot.h"
 
 static Dictionary *g_dict = NULL;
 
@@ -17,7 +18,7 @@ bool handlers_init(Dictionary *dict)
            cmd_handler_register("GET", handle_get) &&
            cmd_handler_register("SET", handle_set) &&
            cmd_handler_register("DEL", handle_del) && cmd_handler_register("COUNT", handle_count) &&
-           cmd_handler_register("STATS", handle_stats);
+           cmd_handler_register("STATS", handle_stats) && cmd_handler_register("EXISTS", handle_exists) && cmd_handler_register("PERSIST", handle_persist) && cmd_handler_register("FLUSHDB", handle_flush);
 }
 
 bool handle_ping(const ParsedLine *line, char *out, size_t size)
@@ -59,6 +60,23 @@ bool handle_get(const ParsedLine *line, char *out, size_t size)
 
     memcpy(out + used, "\r\n", 2);
     out[used + 2] = '\0';
+
+    return true;
+}
+
+bool handle_exists(const ParsedLine *line, char *out, size_t size)
+{
+    if (line->arg_count != 1)
+    {
+        snprintf(out, size, "-ERR wrong number of arguments\r\n");
+        return true;
+    }
+
+    const char *key = line->args[0];
+
+    bool exists = dict_key_exists(g_dict, key, strlen(key));
+
+    snprintf(out, size, ":%d\r\n", exists ? 1 : 0);
 
     return true;
 }
@@ -141,5 +159,45 @@ bool handle_stats(const ParsedLine *line, char *out, size_t size)
     const char *stats = dict_stats(g_dict);
 
     snprintf(out, size, "+%s\r\n", stats);
+    return true;
+}
+
+bool handle_persist(const ParsedLine *line, char *out, size_t size)
+{
+    if (line->arg_count != 1)
+    {
+        snprintf(out, size, "-ERR wrong number of arguments\r\n");
+        return true;
+    }
+
+    const char *key = line->args[0];
+
+    bool success = dict_remove_key_expiration(g_dict, key, strlen(key));
+
+    snprintf(out, size, ":%d\r\n", success ? 1 : 0);
+
+    return true;
+}
+
+bool handle_flush(const ParsedLine *line, char *out, size_t size)
+{
+    if (line->arg_count != 0)
+    {
+        snprintf(out, size, "-ERR wrong number of arguments\r\n");
+        return true;
+    }
+
+    if (!dict_flush(g_dict))
+    {
+        snprintf(out, size, "-ERR failed to flush dictionary\r\n");
+        return true;
+    }
+
+    if (!snapshot_delete(default_snapshot_file()))
+    {
+        perror("snapshot_delete");
+    }
+
+    snprintf(out, size, "+OK\r\n");
     return true;
 }

@@ -19,6 +19,16 @@
 #include <stdint.h>
 #include <inttypes.h>
 
+static inline bool dict_has_valid_key(const Dictionary *d, const char *key, size_t key_len)
+{
+    return d != NULL &&
+           key != NULL &&
+           key_len > 0 &&
+           d->buckets != NULL &&
+           d->capacity > 0 &&
+           d->count > 0;
+}
+
 static int64_t current_time_ms(void)
 {
     struct timespec ts;
@@ -272,10 +282,11 @@ bool dict_set(Dictionary *d, const char *key, size_t key_len,
     pthread_mutex_unlock(&d->mutex);
     return true;
 }
+
 Entry *dict_get(Dictionary *d, const char *key, size_t key_len)
 {
-    if (d == NULL || key == NULL || d->capacity == 0)
-        return NULL;
+    if (!dict_has_valid_key(d, key, key_len))
+        return false;
 
     pthread_mutex_lock(&d->mutex);
 
@@ -322,7 +333,7 @@ Entry *dict_get(Dictionary *d, const char *key, size_t key_len)
 
 bool dict_delete(Dictionary *d, const char *key, size_t key_len)
 {
-    if (d == NULL || key == NULL || d->capacity == 0 || d->count == 0)
+    if (!dict_has_valid_key(d, key, key_len))
         return false;
     pthread_mutex_lock(&d->mutex);
 
@@ -461,4 +472,82 @@ void dict_delete_expired(Dictionary *d)
         dict_resize(d, d->capacity / 2);
 
     pthread_mutex_unlock(&d->mutex);
+}
+
+static Entry **dict_find_slot(Dictionary *d, const char *key, size_t key_len)
+{
+    if (!dict_has_valid_key(d, key, key_len))
+    {
+        return NULL;
+    }
+
+    uint64_t h = hash_function(key, key_len);
+    size_t index = h & (d->capacity - 1);
+
+    Entry **pp = &d->buckets[index];
+    while (*pp != NULL)
+    {
+        Entry *curr = *pp;
+
+        if (strcmp(curr->key, key) == 0)
+        {
+            return pp;
+        }
+
+        pp = &curr->next;
+    }
+
+    return NULL;
+}
+
+bool dict_key_exists(Dictionary *d, const char *key, size_t key_len)
+{
+    return dict_find_slot(d, key, key_len) != NULL;
+}
+
+bool dict_remove_key_expiration(Dictionary *d, const char *key, size_t key_len)
+{
+    if (d == NULL)
+    {
+        return false;
+    }
+    pthread_mutex_lock(&d->mutex);
+    Entry **slot = dict_find_slot(d, key, key_len);
+    if (slot != NULL)
+    {
+        Entry *entry = *slot;
+        entry->expiration_time = -1;
+    }
+
+    pthread_mutex_unlock(&d->mutex);
+    return slot != NULL;
+}
+
+bool dict_flush(Dictionary *d)
+{
+    if (d == NULL)
+    {
+        return false;
+    }
+    pthread_mutex_lock(&d->mutex);
+    if (d->buckets != NULL)
+    {
+        for (size_t i = 0; i < d->capacity; i++)
+        {
+            Entry *curr = d->buckets[i];
+            while (curr != NULL)
+            {
+                Entry *next = curr->next;
+                free(curr->key);
+                free(curr->value);
+                free(curr);
+                curr = next;
+            }
+            d->buckets[i] = NULL;
+        }
+    }
+
+    d->count = 0;
+    pthread_mutex_unlock(&d->mutex);
+    return true;
 }

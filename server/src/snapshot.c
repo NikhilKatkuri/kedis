@@ -233,3 +233,13 @@ bool snapshot_load(Dictionary *d, const char *path)
     fclose(f);
     return true;
 }
+
+bool snapshot_delete(const char *path)
+{
+    if (path == NULL || path[0] == '\0')
+        return false;
+
+    if (unlink(path) == 0)
+        return true;
+    return errno == ENOENT;
+}

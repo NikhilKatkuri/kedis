@@ -10,4 +10,6 @@ bool snapshot_save(Dictionary *d, const char *path);
 
 bool snapshot_load(Dictionary *d, const char *path);
 
+bool snapshot_delete(const char *path);
+
 #endif /* SNAPSHOT_H */

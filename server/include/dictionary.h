@@ -52,4 +52,13 @@ size_t dict_count(Dictionary *d);
 /* size of dictionary */
 const char *dict_stats(Dictionary *d);
 
+/** Returns the key if it exists, otherwise returns NULL. */
+bool dict_key_exists(Dictionary *d, const char *key, size_t key_len);
+
+/** remove exipration */
+bool dict_remove_key_expiration(Dictionary *d, const char *key, size_t key_len);
+
+// flush
+bool dict_flush(Dictionary *d);
+
 #endif /* DICTIONARY_H */

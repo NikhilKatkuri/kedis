@@ -35,6 +35,24 @@
       "min_args": 0,
       "max_args": 0,
       "allowed_opts": []
+    },
+    {
+      "name": "EXISTS",
+      "min_args": 1,
+      "max_args": 1,
+      "allowed_opts": []
+    },
+    {
+      "name": "PERSIST",
+      "max_args": 1,
+      "min_args": 1,
+      "allowed_opts": []
+    },
+    {
+      "name": "flushdb",
+      "min_args": 0,
+      "max_args": 0,
+      "allowed_opts": []
     }
   ]
 }

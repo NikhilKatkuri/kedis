@@ -1,0 +1,35 @@
+# Build outputs & compiled binaries
+server/build/
+build/
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.out
+*.exe
+
+# Legacy / stray test binaries if built in-place
+server/tests/test_dict
+server/tests/test_snapshot
+tests/test_dict
+tests/test_snapshot
+
+# Snapshot & temporary persistence files
+*.rdb
+*.snap
+*.snapshot
+*.tmp
+
+# Coverage & sanitizer artifacts
+*.gcda
+*.gcno
+*.gcov
+*.dSYM/
+
+# Editors & OS clutter
+.vscode/*
+!.vscode/c_cpp_properties.json
+!.vscode/settings.json
+.DS_Store
+Thumbs.db

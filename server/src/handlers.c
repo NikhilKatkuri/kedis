@@ -18,7 +18,8 @@ bool handlers_init(Dictionary *dict)
            cmd_handler_register("GET", handle_get) &&
            cmd_handler_register("SET", handle_set) &&
            cmd_handler_register("DEL", handle_del) && cmd_handler_register("COUNT", handle_count) &&
-           cmd_handler_register("STATS", handle_stats) && cmd_handler_register("EXISTS", handle_exists) && cmd_handler_register("PERSIST", handle_persist) && cmd_handler_register("FLUSHDB", handle_flush);
+           cmd_handler_register("STATS", handle_stats) && cmd_handler_register("EXISTS", handle_exists) && cmd_handler_register("PERSIST", handle_persist) && cmd_handler_register("FLUSHDB", handle_flush) && cmd_handler_register("MGET", handle_mget) && cmd_handler_register("MSET", handle_mset);
+    ;
 }
 
 bool handle_ping(const ParsedLine *line, char *out, size_t size)
@@ -199,5 +200,76 @@ bool handle_flush(const ParsedLine *line, char *out, size_t size)
     }
 
     snprintf(out, size, "+OK\r\n");
+    return true;
+}
+
+bool handle_mset(const ParsedLine *line, char *out, size_t size)
+{
+    if (line->arg_count < 2 || (line->arg_count % 2) != 0)
+    {
+        snprintf(out, size, "-ERR wrong number of arguments for 'mset' command\r\n");
+        return true;
+    }
+
+    for (int i = 0; i < line->arg_count; i += 2)
+    {
+        const char *key = line->args[i];
+        const char *val = line->args[i + 1];
+
+        if (!dict_set(g_dict, key, strlen(key), val, strlen(val), -1))
+        {
+            snprintf(out, size, "-ERR out of memory or failed to set key\r\n");
+            return true;
+        }
+    }
+
+    snprintf(out, size, "+OK\r\n");
+    return true;
+}
+
+bool handle_mget(const ParsedLine *line, char *out, size_t size)
+{
+    if (line->arg_count < 1 || size == 0)
+    {
+        snprintf(out, size, "-ERR wrong number of arguments for 'mget' command\r\n");
+        return true;
+    }
+
+    size_t pos = 0;
+    int written = snprintf(out + pos, size - pos, "*%d\r\n", line->arg_count);
+    if (written < 0 || (size_t)written >= size - pos)
+    {
+        snprintf(out, size, "-ERR response too large\r\n");
+        return true;
+    }
+    pos += (size_t)written;
+
+    for (int i = 0; i < line->arg_count; i++)
+    {
+        const char *key = line->args[i];
+        size_t key_len = strlen(key);
+
+        bool found = dict_get(g_dict, key, key_len);
+        Entry **slot = found ? dict_find_slot(g_dict, key, key_len) : NULL;
+
+        if (!found || slot == NULL || *slot == NULL || (*slot)->value == NULL)
+        {
+            written = snprintf(out + pos, size - pos, "$-1\r\n");
+        }
+        else
+        {
+            Entry *entry = *slot;
+            written = snprintf(out + pos, size - pos, "$%zu\r\n%.*s\r\n",
+                               entry->value_len, (int)entry->value_len, entry->value);
+        }
+
+        if (written < 0 || (size_t)written >= size - pos)
+        {
+            snprintf(out, size, "-ERR response buffer overflow\r\n");
+            return true;
+        }
+        pos += (size_t)written;
+    }
+
     return true;
 }

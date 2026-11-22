@@ -159,6 +159,44 @@ bool parse_ttl_expires_at(
     return true;
 }
 
+static CommandHandlerEntry handlers[MAX_CMDS];
+static int handler_count = 0;
+
+bool cmd_handler_register(
+    const char *name,
+    CommandHandler handler)
+{
+    if (!name || !handler ||
+        name[0] == '\0' ||
+        handler_count >= MAX_CMDS ||
+        strlen(name) >= MAX_NAME)
+        return false;
+
+    for (int i = 0; i < handler_count; i++)
+    {
+        if (strcmp(handlers[i].name, name) == 0)
+            return false;
+    }
+
+    CommandHandlerEntry *entry = &handlers[handler_count++];
+
+    snprintf(entry->name, sizeof(entry->name), "%s", name);
+    entry->handler = handler;
+
+    return true;
+}
+
+static CommandHandler cmd_handler_find(const char *name)
+{
+    for (int i = 0; i < handler_count; i++)
+    {
+        if (strcmp(handlers[i].name, name) == 0)
+            return handlers[i].handler;
+    }
+
+    return NULL;
+}
+
 bool cmd_registry_load(
     CommandRegistry *reg,
     const char *path)
@@ -325,7 +363,7 @@ bool cmd_registry_load(
         long max_value = strtol(c_max + 1, &end_max, 10);
 
         if (errno || end_max == c_max + 1 ||
-            max_value < min_value || max_value > MAX_TOKENS)
+            (max_value != -1 && (max_value < min_value || max_value > MAX_TOKENS)))
         {
             free(obj);
             free(buf);
@@ -450,44 +488,6 @@ static const CommandSpec *cmd_registry_find(
     return NULL;
 }
 
-static CommandHandlerEntry handlers[MAX_CMDS];
-static int handler_count = 0;
-
-bool cmd_handler_register(
-    const char *name,
-    CommandHandler handler)
-{
-    if (!name || !handler ||
-        name[0] == '\0' ||
-        handler_count >= MAX_CMDS ||
-        strlen(name) >= MAX_NAME)
-        return false;
-
-    for (int i = 0; i < handler_count; i++)
-    {
-        if (strcmp(handlers[i].name, name) == 0)
-            return false;
-    }
-
-    CommandHandlerEntry *entry = &handlers[handler_count++];
-
-    snprintf(entry->name, sizeof(entry->name), "%s", name);
-    entry->handler = handler;
-
-    return true;
-}
-
-static CommandHandler cmd_handler_find(const char *name)
-{
-    for (int i = 0; i < handler_count; i++)
-    {
-        if (strcmp(handlers[i].name, name) == 0)
-            return handlers[i].handler;
-    }
-
-    return NULL;
-}
-
 void cmd_execute(
     const CommandRegistry *reg,
     const ParsedLine *line,
@@ -511,7 +511,7 @@ void cmd_execute(
     }
 
     if (line->arg_count < spec->min_args ||
-        line->arg_count > spec->max_args)
+        (spec->max_args >= 0 && line->arg_count > spec->max_args))
     {
         snprintf(
             out_resp,

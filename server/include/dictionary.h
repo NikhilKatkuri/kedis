@@ -61,4 +61,7 @@ bool dict_remove_key_expiration(Dictionary *d, const char *key, size_t key_len);
 // flush
 bool dict_flush(Dictionary *d);
 
+/** find a slot */
+Entry **dict_find_slot(Dictionary *d, const char *key, size_t key_len);
+
 #endif /* DICTIONARY_H */

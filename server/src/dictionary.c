@@ -474,7 +474,7 @@ void dict_delete_expired(Dictionary *d)
     pthread_mutex_unlock(&d->mutex);
 }
 
-static Entry **dict_find_slot(Dictionary *d, const char *key, size_t key_len)
+Entry **dict_find_slot(Dictionary *d, const char *key, size_t key_len)
 {
     if (!dict_has_valid_key(d, key, key_len))
     {

@@ -53,6 +53,18 @@
       "min_args": 0,
       "max_args": 0,
       "allowed_opts": []
+    },  
+    {
+      "name": "MSET",
+      "min_args": 2,
+      "max_args": -1,
+      "allowed_opts": []
+    },
+    {
+      "name": "MGET",
+      "min_args": 1,
+      "max_args": -1,
+      "allowed_opts": []
     }
   ]
 }

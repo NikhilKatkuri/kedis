@@ -69,7 +69,10 @@ const char *default_snapshot_file(void)
 static int64_t now_ms(void)
 {
     struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
+
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0)
+        return -1;
+
     return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
@@ -83,26 +86,38 @@ static bool read_all(FILE *f, void *buf, size_t n)
     return n == 0 || fread(buf, 1, n, f) == n;
 }
 
-bool snapshot_save(const Dictionary *d, const char *path)
+bool snapshot_save(Dictionary *d, const char *path)
 {
     if (d == NULL || path == NULL)
         return false;
 
+    pthread_mutex_lock(&d->mutex);
+
     char tmp[4096];
+
     if (snprintf(tmp, sizeof tmp, "%s.tmp", path) >= (int)sizeof tmp)
-        return false;
+        goto fail_unlock;
 
     FILE *f = fopen(tmp, "wb");
+
     if (f == NULL)
-        return false;
+        goto fail_unlock;
 
     int64_t now = now_ms();
 
+    if (now < 0)
+        goto fail;
+
     uint64_t live = 0;
+
     for (size_t i = 0; i < d->capacity; i++)
+    {
         for (const Entry *e = d->buckets[i]; e != NULL; e = e->next)
-            if (e->expires_at_ms == -1 || e->expires_at_ms > now)
+        {
+            if (e->expiration_time == -1 || e->expiration_time > now)
                 live++;
+        }
+    }
 
     if (!write_all(f, SNAP_MAGIC, SNAP_MAGIC_LEN) ||
         !write_all(f, &live, sizeof live))
@@ -112,38 +127,47 @@ bool snapshot_save(const Dictionary *d, const char *path)
     {
         for (const Entry *e = d->buckets[i]; e != NULL; e = e->next)
         {
-            if (e->expires_at_ms != -1 && e->expires_at_ms <= now)
+            if (e->expiration_time != -1 && e->expiration_time <= now)
                 continue;
 
             uint32_t kl = (uint32_t)e->key_len;
             uint32_t vl = (uint32_t)e->value_len;
 
+            int64_t snapshot_expiration_ms = e->expiration_time;
+
             if (!write_all(f, &kl, sizeof kl) ||
                 !write_all(f, e->key, e->key_len) ||
                 !write_all(f, &vl, sizeof vl) ||
                 !write_all(f, e->value, e->value_len) ||
-                !write_all(f, &e->expires_at_ms, sizeof e->expires_at_ms))
+                !write_all(f, &snapshot_expiration_ms, sizeof snapshot_expiration_ms))
                 goto fail;
         }
     }
 
     if (fflush(f) != 0 || fsync(fileno(f)) != 0)
         goto fail;
+
     if (fclose(f) != 0)
     {
         remove(tmp);
-        return false;
+        goto fail_unlock;
     }
+
     if (rename(tmp, path) != 0)
     {
         remove(tmp);
-        return false;
+        goto fail_unlock;
     }
+
+    pthread_mutex_unlock(&d->mutex);
     return true;
 
 fail:
     fclose(f);
     remove(tmp);
+
+fail_unlock:
+    pthread_mutex_unlock(&d->mutex);
     return false;
 }
 

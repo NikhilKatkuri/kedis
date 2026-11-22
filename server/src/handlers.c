@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <inttypes.h>
 
 #include "../include/handlers.h"
 
@@ -35,7 +36,6 @@ bool handle_get(const ParsedLine *line, char *out, size_t size)
     }
 
     const char *key = line->args[0];
-
     Entry *entry = dict_get(g_dict, key, strlen(key));
 
     if (entry == NULL)
@@ -44,15 +44,15 @@ bool handle_get(const ParsedLine *line, char *out, size_t size)
         return true;
     }
 
-    snprintf(out, size, "$%zu\r\n", entry->value_len);
+    int header_len = snprintf(out, size, "$%zu\r\n", entry->value_len);
 
-    size_t used = strlen(out);
-
-    if (used + entry->value_len + 2 > size)
+    if (header_len < 0 || (size_t)header_len + entry->value_len + 3 > size)
     {
         snprintf(out, size, "-ERR response too large\r\n");
         return true;
     }
+
+    size_t used = (size_t)header_len;
 
     memcpy(out + used, entry->value, entry->value_len);
     used += entry->value_len;
@@ -74,11 +74,27 @@ bool handle_set(const ParsedLine *line, char *out, size_t size)
     const char *key = line->args[0];
     const char *value = line->args[1];
 
+    int64_t out_ttl = -1;
+
+    const char *ttl_option = find_opt_value(line, "ttl");
+
+    if (ttl_option != NULL)
+    {
+        int64_t expiry;
+
+        if (!parse_ttl_expires_at(ttl_option, &expiry))
+        {
+            snprintf(out, size, "-ERR invalid TTL\r\n");
+            return true;
+        }
+        out_ttl = expiry;
+    }
+
     bool ok = dict_set(
         g_dict,
         key, strlen(key),
         value, strlen(value),
-        -1);
+        out_ttl);
 
     snprintf(out, size, "%s",
              ok ? "+OK\r\n" : "-ERR SET failed\r\n");

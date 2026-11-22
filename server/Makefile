@@ -1,6 +1,6 @@
 
 CC ?= gcc
-CFLAGS := -std=c17 -Wall -Wextra -Iinclude
+CFLAGS := -std=c17 -Wall -Wextra -Iinclude -pthread
 SAN_FLAGS := -g -fsanitize=address,undefined
 
 SRC_DIR := src
@@ -11,9 +11,16 @@ DICT_SRCS := $(SRC_DIR)/dictionary.c
 SNAP_SRCS := $(SRC_DIR)/snapshot.c $(DICT_SRCS)
 CMD_SRCS := $(SRC_DIR)/commands.c
 HANDLER_SRCS := $(SRC_DIR)/handlers.c
+EXPIRE_SRCS := $(SRC_DIR)/active_expire.c
+SNAPSHOT_WORKER_SRCS := $(SRC_DIR)/background_snapshot.c
 
-SERVER_SRCS := $(SRC_DIR)/server.c $(CMD_SRCS) $(HANDLER_SRCS) $(SNAP_SRCS)
-
+SERVER_SRCS := $(SRC_DIR)/server.c \
+               $(CMD_SRCS) \
+               $(HANDLER_SRCS) \
+               $(SNAP_SRCS) \
+               $(EXPIRE_SRCS) \
+               $(SNAPSHOT_WORKER_SRCS)
+			   
 TEST_DICT_BIN := $(BUILD_DIR)/test_dict
 TEST_SNAP_BIN := $(BUILD_DIR)/test_snapshot
 TEST_HANDLER_BIN := $(BUILD_DIR)/test_handlers

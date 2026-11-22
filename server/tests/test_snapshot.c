@@ -77,12 +77,12 @@ static void test_save_and_load_ttl_and_binary(void)
     Entry *e_perm = dict_get(dst, S("perm"));
     assert(e_perm != NULL);
     assert(e_perm->value_len == 8 && memcmp(e_perm->value, "val_perm", 8) == 0);
-    assert(e_perm->expires_at_ms == -1);
+    assert(e_perm->expiration_time == -1);
 
     Entry *e_live = dict_get(dst, S("live_ttl"));
     assert(e_live != NULL);
     assert(e_live->value_len == 8 && memcmp(e_live->value, "val_live", 8) == 0);
-    assert(e_live->expires_at_ms > now);
+    assert(e_live->expiration_time > now);
 
     /* Expired key should not be restored */
     assert(dict_get(dst, S("expired_key")) == NULL);

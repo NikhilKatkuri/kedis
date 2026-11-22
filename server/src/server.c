@@ -13,10 +13,11 @@
 #include "../include/handlers.h"
 #include "../include/dictionary.h"
 #include "../include/snapshot.h"
+#include "../include/active_expire.h"
+#include "../include/background_snapshot.h"
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <errno.h>
-
 #define MAX 1024
 #define PORT 7379
 
@@ -111,6 +112,15 @@ static void handle_client(int connfd)
 
 int main(void)
 {
+    int result = 1;
+    int sockfd = -1;
+    int connfd = -1;
+    bool thread_started = false;
+    bool save_snapshot = false;
+
+    pthread_t expire_thread;
+    ActiveExpireContext expire_ctx;
+
     Dictionary *dict = dict_create(INITIAL_CAPCITY);
 
     if (dict == NULL)
@@ -120,11 +130,18 @@ int main(void)
     }
 
     const char *snapshot_path = default_snapshot_file();
+
     char directory[1024];
-    snprintf(directory, sizeof(directory),
-             "%s", snapshot_path);
+
+    if (snprintf(directory, sizeof directory, "%s",
+                 snapshot_path) >= (int)sizeof directory)
+    {
+        fprintf(stderr, "Snapshot path too long\n");
+        goto cleanup;
+    }
 
     char *last_slash = strrchr(directory, '/');
+
     if (last_slash)
     {
         *last_slash = '\0';
@@ -132,85 +149,143 @@ int main(void)
         if (mkdir(directory, 0755) != 0 && errno != EEXIST)
         {
             perror("mkdir");
-            return 1;
+            goto cleanup;
         }
     }
-    if (!snapshot_load(dict, default_snapshot_file()))
+
+    if (!snapshot_load(dict, snapshot_path))
     {
         fprintf(stderr, "Snapshot loading failed\n");
-        dict_free(dict);
-        return 1;
+        goto cleanup;
+    }
+
+    SnapshotContext snapshot_ctx;
+
+    snapshot_ctx.dict = dict;
+    snapshot_ctx.path = snapshot_path;
+
+    atomic_init(&snapshot_ctx.stop, false);
+
+    pthread_t snapshot_thread;
+    bool snapshot_thread_started = false;
+
+    if (pthread_create(
+            &snapshot_thread,
+            NULL,
+            snapshot_worker,
+            &snapshot_ctx) == 0)
+    {
+        snapshot_thread_started = true;
+    }
+    else
+    {
+        fprintf(stderr, "Could not start snapshot worker\n");
     }
 
     if (!cmd_registry_load(&g_cmd_reg, "commands/commands.json"))
     {
         fprintf(stderr, "Failed to load commands\n");
-        dict_free(dict);
-        return 1;
+        goto cleanup;
     }
 
     if (!handlers_init(dict))
     {
         fprintf(stderr, "Failed to register handlers\n");
-        dict_free(dict);
-        return 1;
+        goto cleanup;
     }
 
-    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    expire_ctx.dict = dict;
+    atomic_init(&expire_ctx.stop, false);
+
+    if (pthread_create(&expire_thread, NULL,
+                       active_expire, &expire_ctx) != 0)
+    {
+        perror("Failed to create expiration thread");
+        goto cleanup;
+    }
+
+    thread_started = true;
+
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+
     if (sockfd < 0)
     {
         perror("socket");
-        return 1;
+        goto cleanup;
     }
-    printf("Socket successfully created..\n");
 
-    /* Avoid "Address already in use" when restarting the server */
     int opt = 1;
     setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof opt);
 
     struct sockaddr_in servaddr;
     memset(&servaddr, 0, sizeof servaddr);
+
     servaddr.sin_family = AF_INET;
     servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
     servaddr.sin_port = htons(PORT);
 
-    if (bind(sockfd, (struct sockaddr *)&servaddr, sizeof servaddr) != 0)
+    if (bind(sockfd, (struct sockaddr *)&servaddr,
+             sizeof servaddr) != 0)
     {
         perror("bind");
-        close(sockfd);
-        return 1;
+        goto cleanup;
     }
-    printf("Socket successfully binded..\n");
 
     if (listen(sockfd, 5) != 0)
     {
         perror("listen");
-        close(sockfd);
-        return 1;
+        goto cleanup;
     }
+
     printf("Server listening on port %d..\n", PORT);
 
     struct sockaddr_in cli;
     socklen_t len = sizeof cli;
-    int connfd = accept(sockfd, (struct sockaddr *)&cli, &len);
+
+    connfd = accept(sockfd, (struct sockaddr *)&cli, &len);
+
     if (connfd < 0)
     {
         perror("accept");
-        close(sockfd);
-        return 1;
+        goto cleanup;
     }
+
     printf("Server accepted the client..\n");
 
     handle_client(connfd);
 
-    close(connfd);
-    close(sockfd);
-    if (!snapshot_save(dict, default_snapshot_file()))
+    save_snapshot = true;
+    result = 0;
+
+cleanup:
+
+    if (connfd >= 0)
+        close(connfd);
+
+    if (sockfd >= 0)
+        close(sockfd);
+
+    if (thread_started)
     {
-        fprintf(stderr, "Snapshot saving failed\n");
-        dict_free(dict);
-        return 1;
+        atomic_store(&expire_ctx.stop, true);
+        pthread_join(expire_thread, NULL);
     }
+
+    if (save_snapshot)
+    {
+        if (snapshot_thread_started)
+        {
+            atomic_store(&snapshot_ctx.stop, true);
+            pthread_join(snapshot_thread, NULL);
+        }
+        if (!snapshot_save(dict, snapshot_path))
+        {
+            fprintf(stderr, "Snapshot saving failed\n");
+            result = 1;
+        }
+    }
+
     dict_free(dict);
-    return 0;
+
+    return result;
 }

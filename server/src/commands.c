@@ -1,5 +1,7 @@
+#define _POSIX_C_SOURCE 200809L
 
 #include <errno.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -8,7 +10,7 @@
 #include <strings.h>
 #include <time.h>
 #include <ctype.h>
-
+#include <limits.h>
 #include "commands.h"
 #define MAX_CMDS 64
 #define MAX_OPTS 16
@@ -124,7 +126,7 @@ const char *find_opt_value(
 
 bool parse_ttl_expires_at(
     const char *s,
-    long long *out_expires_at)
+    int64_t *out_expires_at)
 {
     if (!s || !*s || !out_expires_at)
         return false;
@@ -132,25 +134,27 @@ bool parse_ttl_expires_at(
     errno = 0;
 
     char *end = NULL;
-    long long ttl = strtoll(s, &end, 10);
+    int64_t ttl_ms = strtoll(s, &end, 10);
 
     if (errno == ERANGE ||
         end == s ||
         *end != '\0' ||
-        ttl <= 0)
+        ttl_ms <= 0)
         return false;
 
-    time_t now = time(NULL);
+    struct timespec ts;
 
-    if (now == (time_t)-1)
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0)
         return false;
 
-    long long current = (long long)now;
+    int64_t now_ms =
+        (int64_t)ts.tv_sec * 1000 +
+        ts.tv_nsec / 1000000;
 
-    if (current < 0 || ttl > LLONG_MAX - current)
+    if (ttl_ms > INT64_MAX - now_ms)
         return false;
 
-    *out_expires_at = current + ttl;
+    *out_expires_at = now_ms + ttl_ms;
 
     return true;
 }

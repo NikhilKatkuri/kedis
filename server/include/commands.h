@@ -4,6 +4,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #define MAX_CMDS 64
 #define MAX_OPTS 16
@@ -82,7 +83,7 @@ const char *find_opt_value(
 
 bool parse_ttl_expires_at(
     const char *s,
-    long long *out_expires_at
+    int64_t *out_expires_at
 );
 
 #endif

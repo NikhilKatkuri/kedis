@@ -6,7 +6,7 @@
 
 const char *default_snapshot_file(void);
 
-bool snapshot_save(const Dictionary *d, const char *path);
+bool snapshot_save(Dictionary *d, const char *path);
 
 bool snapshot_load(Dictionary *d, const char *path);
 

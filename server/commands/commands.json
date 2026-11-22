@@ -1,0 +1,28 @@
+{
+  "commands": [
+    {
+      "name": "PING",
+      "min_args": 0,
+      "max_args": 0,
+      "allowed_opts": []
+    },
+    {
+      "name": "SET",
+      "min_args": 2,
+      "max_args": 2,
+      "allowed_opts": ["ttl"]
+    },
+    {
+      "name": "GET",
+      "min_args": 1,
+      "max_args": 1,
+      "allowed_opts": []
+    },
+    {
+      "name": "DEL",
+      "min_args": 1,
+      "max_args": 1,
+      "allowed_opts": []
+    }
+  ]
+}

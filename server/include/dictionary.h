@@ -58,7 +58,7 @@ bool dict_key_exists(Dictionary *d, const char *key, size_t key_len);
 /** remove exipration */
 bool dict_remove_key_expiration(Dictionary *d, const char *key, size_t key_len);
 
-// flush
+/* flush dictionary */
 bool dict_flush(Dictionary *d);
 
 /** find a slot */

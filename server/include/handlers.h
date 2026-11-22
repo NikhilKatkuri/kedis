@@ -15,6 +15,7 @@ bool handle_persist(const ParsedLine *line, char *out, size_t size);
 bool handle_flush(const ParsedLine *line, char *out, size_t size);
 bool handle_mset(const ParsedLine *line, char *out, size_t size);
 bool handle_mget(const ParsedLine *line, char *out, size_t size);
+bool handle_setnx(const ParsedLine *line, char *out, size_t size);
 bool handlers_init(Dictionary *dict);
 
 #endif

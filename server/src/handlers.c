@@ -9,17 +9,36 @@ static Dictionary *g_dict = NULL;
 
 bool handlers_init(Dictionary *dict)
 {
-    if (dict == NULL)
+    if (!dict)
         return false;
 
     g_dict = dict;
 
-    return cmd_handler_register("PING", handle_ping) &&
-           cmd_handler_register("GET", handle_get) &&
-           cmd_handler_register("SET", handle_set) &&
-           cmd_handler_register("DEL", handle_del) && cmd_handler_register("COUNT", handle_count) &&
-           cmd_handler_register("STATS", handle_stats) && cmd_handler_register("EXISTS", handle_exists) && cmd_handler_register("PERSIST", handle_persist) && cmd_handler_register("FLUSHDB", handle_flush) && cmd_handler_register("MGET", handle_mget) && cmd_handler_register("MSET", handle_mset);
-    ;
+    static const struct
+    {
+        const char *name;
+        CommandHandler fn;
+    } cmds[] = {
+        {"PING", handle_ping},
+        {"GET", handle_get},
+        {"SET", handle_set},
+        {"DEL", handle_del},
+        {"COUNT", handle_count},
+        {"STATS", handle_stats},
+        {"EXISTS", handle_exists},
+        {"PERSIST", handle_persist},
+        {"FLUSHDB", handle_flush},
+        {"MGET", handle_mget},
+        {"MSET", handle_mset},
+        {"SETNX", handle_setnx},
+    };
+
+    for (size_t i = 0; i < sizeof(cmds) / sizeof(cmds[0]); i++)
+    {
+        if (!cmd_handler_register(cmds[i].name, cmds[i].fn))
+            return false;
+    }
+    return true;
 }
 
 bool handle_ping(const ParsedLine *line, char *out, size_t size)
@@ -271,5 +290,34 @@ bool handle_mget(const ParsedLine *line, char *out, size_t size)
         pos += (size_t)written;
     }
 
+    return true;
+}
+
+bool handle_setnx(const ParsedLine *line, char *out, size_t size)
+{
+    if (line->arg_count != 2 || size == 0)
+    {
+        snprintf(out, size, "-ERR wrong number of arguments for 'setnx' command\r\n");
+        return true;
+    }
+
+    const char *key = line->args[0];
+    const char *val = line->args[1];
+    size_t key_len = strlen(key);
+    size_t val_len = strlen(val);
+
+    if (dict_get(g_dict, key, key_len))
+    {
+        snprintf(out, size, ":0\r\n");
+        return true;
+    }
+
+    if (!dict_set(g_dict, key, key_len, val, val_len, -1))
+    {
+        snprintf(out, size, "-ERR out of memory or failed to set key\r\n");
+        return true;
+    }
+
+    snprintf(out, size, ":1\r\n");
     return true;
 }

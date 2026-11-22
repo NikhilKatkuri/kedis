@@ -204,8 +204,7 @@ static bool dict_resize(Dictionary *d, size_t capacity)
     return true;
 }
 
-bool dict_set(Dictionary *d, const char *key, size_t key_len,
-              const char *value, size_t value_len, int64_t TTL)
+bool dict_set(Dictionary *d, const char *key, size_t key_len, const char *value, size_t value_len, int64_t TTL)
 {
     if (d == NULL || key == NULL || value == NULL || d->capacity == 0)
         return false;

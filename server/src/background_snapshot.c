@@ -6,6 +6,9 @@
 #include <stdio.h>
 #include <time.h>
 
+#define TICK_MS 100
+#define SNAPSHOT_INTERVAL_TICKS (60 * 1000 / TICK_MS)
+
 void *snapshot_worker(void *arg)
 {
     SnapshotContext *ctx = arg;
@@ -15,16 +18,16 @@ void *snapshot_worker(void *arg)
 
     while (!atomic_load(&ctx->stop))
     {
-        for (int i = 0; i < 60; i++)
+        for (int i = 0; i < SNAPSHOT_INTERVAL_TICKS; i++)
         {
             if (atomic_load(&ctx->stop))
                 return NULL;
 
-            struct timespec interval = {
-                .tv_sec = 1,
-                .tv_nsec = 0};
+            struct timespec tick = {
+                .tv_sec = 0,
+                .tv_nsec = TICK_MS * 1000000L};
 
-            nanosleep(&interval, NULL);
+            nanosleep(&tick, NULL);
         }
 
         if (atomic_load(&ctx->stop))

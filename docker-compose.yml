@@ -1,0 +1,12 @@
+services:
+  kedis:
+    build: .
+    image: kedis
+    ports:
+      - "127.0.0.1:7379:7379"
+    volumes:
+      - kedis-data:/data
+    restart: unless-stopped
+
+volumes:
+  kedis-data:

@@ -4,124 +4,162 @@ A lightweight, Redis-inspired key-value server written in C, with a small Node.j
 
 > kedis is a focused subset for learning and experimentation. It is **not** a Redis drop-in replacement and does not speak RESP.
 
-## Features
+## Getting started
 
-- **Raw byte-buffer storage:** keys and values are `char` buffers with explicit lengths.
-- **Thread-safe dictionary:** hash table with separate chaining, dynamic resizing, and a `pthread_mutex_t` around operations.
-- **JSON-driven command registry:** `server/commands/commands.json` declares each command's name, argument limits, and allowed options. `cmd_execute()` validates a parsed line before calling its handler.
-- **TTL support:** `SET key value -ttl=<ms>`; a background worker removes expired entries every second.
-- **Persistence:** binary `KEDIS001` snapshots, written every 60 seconds and on shutdown.
+kedis listens on **TCP port 7379**. You can run it with Docker (works on any OS) or build it from source (Linux only, because the server uses `epoll`).
 
-## Repository layout
+### Option 1: Docker (recommended)
 
-```text
-kedis/
-├── client-ts/          Node.js interactive shell (kedis-cli)
-└── server/
-    ├── commands/       commands.json (command registry)
-    ├── include/        headers
-    ├── src/            server, dictionary, commands, handlers, snapshot, workers
-    ├── tests/          unit tests (dictionary, handlers, snapshot)
-    └── Makefile
+Requires Docker with the Compose plugin (`docker compose`).
+
+```sh
+docker compose up -d --build   # build the image and start the server in the background
+docker compose ps              # status shows "healthy" after about 10 seconds
+docker compose logs -f         # follow the server log (Ctrl+C stops following, not the server)
+docker compose down            # stop the server; saved data is kept
 ```
 
-| File | Purpose |
-|---|---|
-| `src/server.c` | Entry point: snapshot load, worker threads, registry loading, socket setup, client loop. |
-| `src/dictionary.c` | Hash table, entry lifecycle, resizing, expiration, stats. |
-| `src/commands.c` | `commands.json` loader, line parser, validation, dispatch. |
-| `src/handlers.c` | Command implementations and handler registration (`handlers_init`). |
-| `src/snapshot.c` | Snapshot load/save/delete and default snapshot path. |
-| `src/background_snapshot.c`, `src/active_expire.c` | Periodic snapshot worker and TTL-expiry worker. |
+What you get:
 
-## Build and run
+- A small Alpine-based image that runs the server as a non-root user (uid 10001).
+- A named volume, `kedis-data`, mounted at `/data`. Snapshots are written to `/data/kedis/dump.rdb`, so data survives restarts.
+- The port published on `127.0.0.1:7379` only, so the server is reachable from your machine but not from your network.
+- A healthcheck that confirms the port accepts connections.
 
-Requires GCC (C17) and `make`. Run everything from the `server/` directory.
+Run it without Compose:
+
+```sh
+docker build -t kedis .
+docker run -d --name kedis -p 127.0.0.1:7379:7379 -v kedis-data:/data kedis
+```
+
+After you change any source file, rebuild with `docker compose up -d --build`. A plain `up` reuses the old image.
+
+To delete the saved data as well, run `docker compose down -v`.
+
+### Option 2: Build from source (Linux)
+
+Requires `gcc` and `make` (on Debian/Ubuntu: `sudo apt install build-essential`).
 
 ```sh
 cd server
-make          # builds build/kedis-server and the test binaries
-make run      # builds if needed, then starts the server
+make run
 ```
 
-| Target | Description |
+`make run` builds the server if needed and starts it. Stop it with **Ctrl+C**: the server shuts down cleanly and saves a final snapshot.
+
+Start the server from inside `server/`. It loads `commands/commands.json` relative to its working directory and fails to start if it can't find it.
+
+| Command (from `server/`) | What it does |
 |---|---|
 | `make` | Build the server and all test binaries into `build/`. |
-| `make test` | Run the dictionary, snapshot, and handler tests. |
-| `make san` | Clean, rebuild with ASan/UBSan, and run the tests. |
-| `make run` | Start `build/kedis-server`. |
-| `make client` | Open `nc` to `127.0.0.1:7379`. |
+| `make run` | Build if needed, then start `build/kedis-server`. |
+| `make client` | Open `nc` connected to `127.0.0.1:7379`. |
+| `make test` | Run the unit tests (dictionary, snapshot, handlers). |
+| `make san` | Clean, rebuild with AddressSanitizer and UBSan, and run the tests. |
 | `make clean` | Remove `build/`. |
 
-The server takes no command-line flags: it binds `0.0.0.0:7379`. It reads `commands/commands.json` relative to the working directory, so **start it from `server/`**.
+macOS and Windows can't build the server natively. Use Docker there (Docker Desktop runs a Linux VM), or WSL2 on Windows.
 
-### Connect with netcat
+### Connect to the server
+
+**The interactive shell** (requires Node.js 16 or newer):
+
+```sh
+node cli/shell.js
+```
+
+```text
+kedis> PING
+PONG
+kedis> SET city Tokyo
+OK
+kedis> SET session abc123 -ttl=5000
+OK
+kedis> GET city
+Tokyo
+kedis> STATS
+(printed as a table)
+kedis> exit
+```
+
+Shell commands:
+
+| Command | Description |
+|---|---|
+| `HELP` | List the available commands. |
+| `CONNECT host[:port]` | Switch to another server. The port defaults to 7379. A URL such as `http://host/` is also accepted, but see the note under Remote access. |
+| `exit` / `quit` | Close the shell. |
+
+The shell connects to `127.0.0.1:7379` by default. Override it with environment variables:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `KEDIS_HOST` | `127.0.0.1` | Server host. |
+| `KEDIS_PORT` | `7379` | Server port. |
+
+```sh
+KEDIS_HOST=192.168.1.20 KEDIS_PORT=7379 node cli/shell.js
+```
+
+**Any TCP client** works too, because the protocol is plain text, one command per line:
 
 ```sh
 nc 127.0.0.1 7379
-PING
-SET greeting hello
-GET greeting
+printf 'PING\n' | nc -q1 127.0.0.1 7379
 ```
 
-### Connect with the Node.js shell
+See [Commands](#commands) for the full command list.
 
-Requires Node.js. From the repo root:
+### Configuration
+
+The server has no command-line flags. The port is fixed at 7379.
+
+| Setting | How to change it |
+|---|---|
+| Snapshot location | Set `XDG_DATA_HOME`. The file is `$XDG_DATA_HOME/kedis/dump.rdb`. If it isn't set, the server uses `~/.local/share/kedis/dump.rdb`. (Docker sets it to `/data`.) |
+| Snapshot interval | A snapshot is saved every 60 seconds and again on shutdown. |
+
+`FLUSHDB` clears all keys and deletes the snapshot file.
+
+### Check that persistence works
 
 ```sh
-node client-ts/shell.js
+printf 'SET city Tokyo\n' | nc -q1 127.0.0.1 7379    # OK
+docker compose down                                    # graceful stop saves a snapshot
+docker compose up -d
+printf 'GET city\n' | nc -q1 127.0.0.1 7379           # Tokyo
 ```
 
-Set `KEDIS_HOST` / `KEDIS_PORT` to change the default target. Inside the shell: `HELP` lists commands, `CONNECT <host> <port>` switches servers, and `exit` / `quit` closes the shell. JSON replies (such as `STATS`) are printed as a table.
+### Remote access
 
-> **Current limitation:** the server accepts a **single client connection per process**. When that client disconnects (or sends `exit`), the server saves a snapshot and shuts down. Restart it to connect again.
+kedis has **no authentication and no encryption**. Don't expose port 7379 to the internet. To reach a server on another machine, forward the port over SSH instead:
 
-## Commands
-
-Command names are case-insensitive. Options use `-name=value` syntax; only `ttl` exists today.
-
-| Command | Syntax | Reply |
-|---|---|---|
-| `PING` | `PING` | `PONG` |
-| `SET` | `SET key value [-ttl=ms]` | `OK`, or `-ERR invalid TTL` / `-ERR SET failed` |
-| `GET` | `GET key` | the value, or `(nil)` if absent |
-| `DEL` | `DEL key [key ...]` | `no keys deleted`, `dropped 1 key`, or `dropped N keys` |
-| `EXISTS` | `EXISTS key` | `1` if present, `0` if not |
-| `PERSIST` | `PERSIST key` | `persisted`, or `no ttl or key missing` |
-| `COUNT` | `COUNT` | number of entries |
-| `STATS` | `STATS` | a JSON statistics object |
-| `FLUSHDB` | `FLUSHDB` | `OK`; clears all entries and deletes the snapshot file |
-| `MSET` | `MSET key value [key value ...]` | `OK` (arguments must come in pairs) |
-| `MGET` | `MGET key [key ...]` | numbered list: `1) value`, `2) (nil)`, ... |
-| `SETNX` | `SETNX key value` | `ok`, or `already exists` if the key is present |
-
-Errors are returned as `-ERR ...` (for example `-ERR unknown command` or `-ERR wrong number of arguments for 'SET'`).
-
-TTL example:
-
-```text
-SET session:user42 abc123 -ttl=5000
+```sh
+ssh -N -L 7379:127.0.0.1:7379 user@your-server
+node cli/shell.js            # now talks to the remote server through the tunnel
 ```
 
-`ttl` must be a positive integer number of milliseconds. Invalid, empty, or duplicate `-ttl` options are rejected.
+Web-based tunnels and URLs (HTTP proxies, `*.devtunnels.ms` links, load balancers that only forward HTTP) can't carry kedis traffic, because it uses its own TCP protocol. Forward the raw port instead, as above.
 
-## Input rules
+### Run the tests
 
-The parser is intentionally simple:
+```sh
+cd server
+make test      # unit tests
+make san       # same tests under ASan/UBSan
+```
 
-- Input is plain text; the server reads up to 1023 bytes per `read()` and treats it as **one command line**.
-- Tokens are split on spaces, tabs, `\r` and `\n` using `strtok()`. **Quotes are not special**, so values cannot contain whitespace.
-- Send JSON in compact form with no spaces inside it, e.g. `SET profile {"name":"Ada","active":true}`. `JSON.stringify(obj)` output works.
-- A token starting with `-` and containing `=` is parsed as an option; other tokens are positional arguments.
-- Limits: at most 16 tokens, 16 options, and 64 registered commands.
-- Responses are written into a fixed 256-byte buffer. Larger results return `-ERR response too large` (`GET`) or a truncated/`ERR response too large` reply (`MGET`).
+CI runs the C build, unit tests, sanitizers and a two-client smoke test (`ci.yml`), and builds and tests the Docker image (`docker-ci.yaml`).
 
-## Persistence
+### Troubleshooting
 
-- Snapshot format: binary, magic header `KEDIS001`.
-- Default path:
-  - Linux: `$XDG_DATA_HOME/kedis/dump.rdb`, else `$HOME/.local/share/kedis/dump.rdb`
-  - macOS: `~/Library/Application Support/Kedis/dump.rdb`
-  - Windows: `%LOCALAPPDATA%\Kedis\dump.rdb`
-- The snapshot is loaded at startup, saved every 60 seconds by a background thread, and saved again when the server shuts down.
-- `FLUSHDB` deletes the snapshot file.
+| Problem | Likely cause and fix |
+|---|---|
+| `ECONNREFUSED` from the shell | The server isn't running, or it's on another port. Check `docker compose ps` or the terminal running `make run`. |
+| `Address already in use` / port 7379 taken | Another copy is already running, for example the Docker container and `make run` at the same time. Stop one of them. |
+| `Failed to load commands` on startup | You started the server outside `server/`. `cd server` first. |
+| `Permission denied` and `snapshot saving failed` in the Docker log | The `/data` volume was created with files owned by a different user. Run `docker compose down -v` once to recreate it. This wipes the saved data. |
+| Your code changes don't show up in Docker | The old image is being reused. Run `docker compose up -d --build`. |
+| Build fails on macOS or Windows | The server needs Linux (`epoll`). Use Docker or WSL2. |
+| `connect` fails with `ENOTFOUND` | The hostname is wrong or isn't reachable. Use a plain host or `host:port`. |

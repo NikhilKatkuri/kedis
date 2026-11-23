@@ -3,9 +3,12 @@
 const net = require("node:net");
 const readline = require("node:readline");
 
+const DEFAULT_PORT = 7379;
+const CONNECT_TIMEOUT_MS = 5000;
+
 const defaultConfig = {
   host: process.env.KEDIS_HOST || "127.0.0.1",
-  port: Number(process.env.KEDIS_PORT || 7379),
+  port: Number(process.env.KEDIS_PORT || DEFAULT_PORT),
   prompt: "kedis> ",
 };
 
@@ -14,7 +17,7 @@ const commands = [
   { name: "SET", usage: "SET key val [-ttl=ms]", description: "Set key value (optional TTL in ms)" },
   { name: "GET", usage: "GET key", description: "Get value for key" },
   { name: "DEL", usage: "DEL key [key ...]", description: "Delete one or more keys" },
-  { name: "EXISTS", usage: "EXISTS key [key ...]", description: "Check if keys exist" },
+  { name: "EXISTS", usage: "EXISTS key", description: "Check if a key exists" },
   { name: "PERSIST", usage: "PERSIST key", description: "Remove TTL from key" },
   { name: "MSET", usage: "MSET k1 v1 [k2 v2 ...]", description: "Set multiple key-value pairs" },
   { name: "MGET", usage: "MGET k1 [k2 ...]", description: "Get multiple keys" },
@@ -23,7 +26,7 @@ const commands = [
   { name: "STATS", usage: "STATS", description: "Return server stats" },
   { name: "FLUSHDB", usage: "FLUSHDB", description: "Remove all keys" },
   { name: "HELP", usage: "HELP", description: "Show this help message" },
-  { name: "CONNECT", usage: "CONNECT host port", description: "Switch to a different host and port" },
+  { name: "CONNECT", usage: "CONNECT host[:port] | url [port]", description: "Switch to a different server (port defaults to 7379)" },
   { name: "exit / quit", usage: "exit / quit", description: "Close shell" },
 ];
 
@@ -98,11 +101,91 @@ function flushRemainingBuffer() {
   }
 }
 
+/**
+ * Turns whatever the user typed after "connect" into { host, port, scheme }.
+ * Accepts: host, host:port, host port, [::1]:7379, and URLs such as
+ * http://host/, https://host:7379/path (scheme, credentials, path, query and
+ * fragment are ignored). The port defaults to 7379.
+ * Returns null if the input cannot be understood.
+ */
+function parseTarget(args) {
+  if (!args.length || !args[0]) return null;
+
+  let raw = args[0];
+  let scheme = null;
+
+  const schemeMatch = raw.match(/^([a-z][a-z0-9+.-]*):\/\//i);
+  if (schemeMatch) {
+    scheme = schemeMatch[1].toLowerCase();
+    raw = raw.slice(schemeMatch[0].length);
+  }
+
+  raw = raw.split(/[/?#]/)[0]; // drop path, query, fragment
+
+  const at = raw.lastIndexOf("@"); // drop user:password@
+  if (at !== -1) raw = raw.slice(at + 1);
+
+  let host = raw;
+  let port = null;
+
+  if (raw.startsWith("[")) {
+    // IPv6 literal: [::1] or [::1]:7379
+    const end = raw.indexOf("]");
+    if (end === -1) return null;
+    host = raw.slice(1, end);
+    const rest = raw.slice(end + 1);
+    if (rest.startsWith(":")) port = rest.slice(1);
+  } else {
+    const colon = raw.lastIndexOf(":");
+    // exactly one colon means host:port (more than one is a bare IPv6 address)
+    if (colon !== -1 && raw.indexOf(":") === colon) {
+      host = raw.slice(0, colon);
+      port = raw.slice(colon + 1);
+    }
+  }
+
+  if (args[1] !== undefined) port = args[1]; // "connect host 7379" wins
+  if (port === null || port === "") port = DEFAULT_PORT;
+
+  const parsedPort = Number(port);
+  if (!host || !Number.isInteger(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
+    return null;
+  }
+
+  return { host, port: parsedPort, scheme };
+}
+
+function connectToArgs(args) {
+  const target = parseTarget(args);
+
+  if (!target) {
+    clearPromptLine();
+    console.log("Usage: connect <host> [port]   (also accepts host:port or a URL)");
+    showPrompt();
+    return;
+  }
+
+  const looksLikeWebUrl = ["http", "https", "ws", "wss"].includes(target.scheme);
+  const isDevTunnel = /\.devtunnels\.ms$/i.test(target.host);
+
+  if (looksLikeWebUrl || isDevTunnel) {
+    clearPromptLine();
+    console.log(
+      "Note: that looks like a web (HTTP) address. kedis speaks raw TCP, so web\n" +
+        "relays such as devtunnels.ms usually cannot carry it. If the connection\n" +
+        "fails, forward the port to this machine (for example with\n" +
+        "`devtunnel connect <tunnel-id>`) and use: connect 127.0.0.1 " + DEFAULT_PORT
+    );
+  }
+
+  connectTo(target.host, target.port);
+}
+
 function connectTo(host, port) {
   const parsedPort = Number(port);
   if (!host || !Number.isInteger(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
     clearPromptLine();
-    console.log("Usage: connect <host> <port> (e.g., connect 127.0.0.1 7380)");
+    console.log("Usage: connect <host> [port] (e.g., connect 127.0.0.1 7380)");
     showPrompt();
     return;
   }
@@ -123,8 +206,18 @@ function connectTo(host, port) {
   const nextSocket = net.createConnection({ host, port: parsedPort });
   currentSocket = nextSocket;
 
+  // Give up if the server does not answer, instead of hanging forever.
+  nextSocket.setTimeout(CONNECT_TIMEOUT_MS);
+  nextSocket.on("timeout", () => {
+    if (currentSocket !== nextSocket) return;
+    clearPromptLine();
+    console.error(`Connection to ${host}:${parsedPort} timed out.`);
+    nextSocket.destroy();
+  });
+
   nextSocket.on("connect", () => {
     if (currentSocket !== nextSocket) return;
+    nextSocket.setTimeout(0); // connected: no idle timeout
     defaultConfig.host = host;
     defaultConfig.port = parsedPort;
     clearPromptLine();
@@ -178,13 +271,7 @@ function handleLine(line) {
   }
 
   if (cmd === "connect") {
-    if (parts.length !== 3) {
-      clearPromptLine();
-      console.log("Usage: connect <host> <port>");
-      showPrompt();
-      return;
-    }
-    connectTo(parts[1], parts[2]);
+    connectToArgs(parts.slice(1));
     return;
   }
 
@@ -201,7 +288,7 @@ function handleLine(line) {
 
   if (!currentSocket || currentSocket.destroyed || !currentSocket.writable) {
     clearPromptLine();
-    console.log('Not connected. Use "connect <host> <port>" or "exit".');
+    console.log('Not connected. Use "connect <host> [port]" or "exit".');
     showPrompt();
     return;
   }

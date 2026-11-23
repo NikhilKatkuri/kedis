@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build static Linux binary and package it
+        run: |
+          cd server
+          mkdir -p ../dist/kedis
+          gcc -std=c17 -O2 -static -Iinclude -pthread \
+            src/server.c src/commands.c src/handlers.c src/snapshot.c \
+            src/dictionary.c src/active_expire.c src/background_snapshot.c \
+            -o ../dist/kedis/kedis-server
+          cp -r commands ../dist/kedis/
+          cd ../dist
+          tar czf "kedis-${GITHUB_REF_NAME}-linux-x86_64.tar.gz" kedis
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
+
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build and push Docker image
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"   # image names must be lowercase
+          VERSION="${GITHUB_REF_NAME#v}"
+          docker build -t "$IMAGE:$VERSION" -t "$IMAGE:latest" .
+          docker push "$IMAGE:$VERSION"
+          docker push "$IMAGE:latest"
